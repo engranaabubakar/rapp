@@ -1,0 +1,23 @@
+version: "3.8"
+services:
+  transport-controller:
+    build: ./transport_controller
+    network_mode: host
+    cap_add: ["NET_ADMIN"]
+    environment:
+      - XHAUL_IFACE=eth1
+    restart: unless-stopped
+
+  rapp:
+    build: ./rapp
+    network_mode: host
+    environment:
+      - TRANSPORT_CTRL=http://127.0.0.1:8080/apply_policy
+      - DELAY_THR_MS=0.95
+      - JITTER_THR_MS=0.8
+      - URLLC_IDLE_G=0.5
+      - EMBB_DEMAND_G=7.0
+      - MIN_HOLD_S=3.0
+    depends_on:
+      - transport-controller
+    restart: unless-stopped
