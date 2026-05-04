@@ -1,0 +1,62 @@
+log_level:
+  general: debug
+
+register_nf:
+  general: yes
+
+http_version: 1
+
+http_request_timeout: 3000
+
+nrf:
+  host: oai-nrf
+  sbi:
+    port: 8080
+    api_version: v1
+    interface_name: eth0
+
+smf:
+  host: oai-smf
+  sbi:
+    port: 8080
+    api_version: v1
+    interface_name: eth0
+
+upf:
+  host: oai-upf
+  sbi:
+    port: 8080
+    api_version: v1
+    interface_name: eth0
+
+  pfcp:
+    port: 8805
+    interface_name: eth0
+
+  gtpu:
+    port: 2152
+    interface_name: eth1
+
+  nwi:
+    - access.oai.org
+    - core.oai.org
+
+  upf_info:
+    sNssaiUpfInfoList:
+      - sNssai:
+          sst: 1
+          sd: "000001"
+        dnnUpfInfoList:
+          - dnn: oai.ipv4
+
+dnns:
+  - dnn: oai.ipv4
+    pdu_session_type: IPV4
+    ipv4_subnet: 12.1.1.0/24
+    n6: eth0
+
+database:
+  host: mysql
+  user: test
+  password: test
+  database_name: oai_db

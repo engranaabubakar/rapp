@@ -1,17 +1,341 @@
-networks:
-  oran_net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 192.168.100.0/24
-    driver_opts:
-      com.docker.network.driver.mtu: 1500
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    platform: linux/arm64
+    command: --default-authentication-plugin=mysql_native_password --bind-address=0.0.0.0
+    environment:
+      MYSQL_ROOT_PASSWORD: linux
+      MYSQL_DATABASE: oai_db
+      MYSQL_USER: test
+      MYSQL_PASSWORD: test
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.2
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./configs/oai_db.sql:/docker-entrypoint-initdb.d/oai_db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -plinux || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
 
-  mon_net:
+  oai-nrf:
+    image: oaisoftwarealliance/oai-nrf:v2.2.1
+    container_name: oai-nrf
+    platform: linux/arm64
+    environment:
+      NRF_INTERFACE_NAME_FOR_SBI: eth0
+      NRF_INTERFACE_PORT_FOR_SBI: 8080
+      NRF_INTERFACE_HTTP2_PORT_FOR_SBI: 8081
+      NRF_API_VERSION: v1
+      INSTANCE: "0"
+      PID_DIRECTORY: /var/run
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.3
+    ports:
+      - "8080:8080/tcp"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/nnrf-nfm/v1/nf-instances || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  oai-udr:
+    image: oaisoftwarealliance/oai-udr:v2.2.1
+    container_name: oai-udr
+    platform: linux/arm64
+    depends_on:
+      mysql:
+        condition: service_healthy
+      oai-nrf:
+        condition: service_started
+    environment:
+      UDR_NAME: OAI_UDR
+      UDR_INTERFACE_NAME_FOR_NUDR: eth0
+      UDR_INTERFACE_PORT_FOR_NUDR: 8080
+      UDR_INTERFACE_HTTP2_PORT_FOR_NUDR: 8081
+      UDR_API_VERSION: v1
+      MYSQL_IPV4_ADDRESS: 192.168.150.2
+      MYSQL_USER: test
+      MYSQL_PASS: test
+      MYSQL_DB: oai_db
+      NRF_IPV4_ADDRESS: 192.168.150.3
+      NRF_PORT: 8080
+      USE_FQDN_DNS: "no"
+      REGISTER_NRF: "yes"
+      INSTANCE: "0"
+      PID_DIRECTORY: /var/run
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.4
+    restart: unless-stopped
+
+  oai-udm:
+    image: oaisoftwarealliance/oai-udm:v2.2.1
+    container_name: oai-udm
+    platform: linux/arm64
+    depends_on:
+      oai-nrf:
+        condition: service_started
+      oai-udr:
+        condition: service_started
+    environment:
+      UDM_NAME: OAI_UDM
+      SBI_IF_NAME: eth0
+      SBI_PORT: 8080
+      UDM_INTERFACE_NAME_FOR_NUDM: eth0
+      UDM_INTERFACE_PORT_FOR_NUDM: 8080
+      UDM_INTERFACE_HTTP2_PORT_FOR_NUDM: 8081
+      UDM_API_VERSION: v1
+      NRF_IPV4_ADDRESS: 192.168.150.3
+      NRF_PORT: 8080
+      USE_FQDN_DNS: "no"
+      REGISTER_NRF: "yes"
+      INSTANCE: "0"
+      PID_DIRECTORY: /var/run
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.5
+    restart: unless-stopped
+
+  oai-ausf:
+    image: oaisoftwarealliance/oai-ausf:v2.2.1
+    container_name: oai-ausf
+    platform: linux/arm64
+    depends_on:
+      oai-nrf:
+        condition: service_started
+      oai-udm:
+        condition: service_started
+    environment:
+      AUSF_NAME: OAI_AUSF
+      SBI_IF_NAME: eth0
+      SBI_PORT: 8080
+      AUSF_INTERFACE_NAME_FOR_NAUSF: eth0
+      AUSF_INTERFACE_PORT_FOR_NAUSF: 8080
+      AUSF_INTERFACE_HTTP2_PORT_FOR_NAUSF: 8081
+      AUSF_API_VERSION: v1
+      NRF_IPV4_ADDRESS: 192.168.150.3
+      NRF_PORT: 8080
+      USE_FQDN_DNS: "no"
+      REGISTER_NRF: "yes"
+      INSTANCE: "0"
+      PID_DIRECTORY: /var/run
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.6
+    restart: unless-stopped
+
+  oai-amf:
+    image: oaisoftwarealliance/oai-amf:v2.2.1
+    container_name: oai-amf
+    platform: linux/arm64
+    depends_on:
+      oai-nrf:
+        condition: service_started
+      oai-ausf:
+        condition: service_started
+      oai-udm:
+        condition: service_started
+    environment:
+      TZ: Europe/Paris
+      INSTANCE: "0"
+      PID_DIRECTORY: /var/run
+
+      MCC: "208"
+      MNC: "95"
+      REGION_ID: "128"
+      AMF_SET_ID: "1"
+      SERVED_GUAMI_MCC_0: "208"
+      SERVED_GUAMI_MNC_0: "95"
+      SERVED_GUAMI_REGION_ID_0: "128"
+      SERVED_GUAMI_AMF_SET_ID_0: "1"
+      SERVED_GUAMI_MCC_1: "208"
+      SERVED_GUAMI_MNC_1: "95"
+      SERVED_GUAMI_REGION_ID_1: "128"
+      SERVED_GUAMI_AMF_SET_ID_1: "1"
+
+      PLMN_SUPPORT_MCC: "208"
+      PLMN_SUPPORT_MNC: "95"
+      PLMN_SUPPORT_TAC: "000001"
+      PLMN_SUPPORT_TAC_0: "000001"
+      SST_0: "1"
+      SD_0: "000001"
+
+      AMF_INTERFACE_NAME_FOR_NGAP: eth1
+      AMF_INTERFACE_NAME_FOR_N11: eth0
+      AMF_INTERFACE_NAME_FOR_SBI: eth0
+      AMF_INTERFACE_PORT_FOR_SBI: 8080
+      AMF_INTERFACE_HTTP2_PORT_FOR_SBI: 8081
+      AMF_API_VERSION: v1
+
+      NRF_IPV4_ADDRESS: 192.168.150.3
+      NRF_PORT: 8080
+      AUSF_IPV4_ADDRESS: 192.168.150.6
+      AUSF_PORT: 8080
+      SMF_IPV4_ADDRESS: 192.168.150.7
+      SMF_PORT: 8080
+
+      USE_FQDN_DNS: "no"
+      REGISTER_NRF: "yes"
+      EXTERNAL_AUSF: "yes"
+      EXTERNAL_UDM: "yes"
+      EXTERNAL_NSSF: "no"
+      USE_HTTP2: "no"
+      AUTHENTICATION: "yes"
+
+      MYSQL_SERVER: 192.168.150.2
+      MYSQL_USER: test
+      MYSQL_PASS: test
+      MYSQL_DB: oai_db
+
+    volumes:
+      - ./configs/amf-config.yaml:/openair-amf/etc/config.yaml:ro
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.10
+      dataplane:
+        ipv4_address: 192.168.200.40
+    ports:
+      - "38412:38412/sctp"
+      - "8082:8080/tcp"
+    restart: unless-stopped
+
+  oai-smf:
+    image: oaisoftwarealliance/oai-smf:v2.2.1
+    container_name: oai-smf
+    volumes:
+      - ./configs/smf-config.yaml:/openair-smf/etc/config.yaml:ro
+    platform: linux/arm64
+    depends_on:
+      oai-nrf:
+        condition: service_started
+      oai-amf:
+        condition: service_started
+      oai-upf:
+        condition: service_started
+    environment:
+      TZ: Europe/Paris
+      INSTANCE: "0"
+      PID_DIRECTORY: /var/run
+
+      SMF_INTERFACE_NAME_FOR_N4: eth0
+      SMF_INTERFACE_NAME_FOR_SBI: eth0
+      SMF_INTERFACE_PORT_FOR_SBI: 8080
+      SMF_INTERFACE_HTTP2_PORT_FOR_SBI: 8081
+      SMF_API_VERSION: v1
+
+      NRF_IPV4_ADDRESS: 192.168.150.3
+      NRF_PORT: 8080
+      AMF_IPV4_ADDRESS: 192.168.150.10
+      AMF_PORT: 8080
+      UPF_IPV4_ADDRESS: 192.168.150.8
+      UPF_FQDN_0: oai-upf
+
+      DEFAULT_DNS_IPV4_ADDRESS: 8.8.8.8
+      DEFAULT_DNS_SEC_IPV4_ADDRESS: 1.1.1.1
+
+      DNN_NI0: oai.ipv4
+      TYPE0: IPv4
+      DNN_RANGE0: 12.1.1.2 - 12.1.1.254
+      NSSAI_SST0: "1"
+      NSSAI_SD0: "000001"
+
+      USE_FQDN_DNS: "no"
+      REGISTER_NRF: "yes"
+      USE_LOCAL_SUBSCRIPTION_INFO: "yes"
+      USE_NETWORK_INSTANCE: "yes"
+      HTTP_VERSION: "1"
+
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.7
+      dataplane:
+        ipv4_address: 192.168.200.51
+    restart: unless-stopped
+
+  oai-upf:
+    image: oaisoftwarealliance/oai-upf:v2.2.1
+    container_name: oai-upf
+    platform: linux/arm64
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    environment:
+      TZ: Europe/Paris
+      INSTANCE: "0"
+      PID_DIRECTORY: /var/run
+
+      UPF_INTERFACE_NAME_FOR_N3: eth1
+      UPF_INTERFACE_NAME_FOR_N4: eth0
+      UPF_INTERFACE_NAME_FOR_N6: eth0
+
+      UPF_INTERFACE_NAME_FOR_SBI: eth0
+      UPF_INTERFACE_PORT_FOR_SBI: 8080
+      UPF_INTERFACE_HTTP2_PORT_FOR_SBI: 8081
+      UPF_API_VERSION: v1
+
+      NRF_IPV4_ADDRESS: 192.168.150.3
+      NRF_PORT: 8080
+      SMF_IPV4_ADDRESS: 192.168.150.7
+      SMF_PORT: 8080
+
+      NETWORK_INSTANCE: oai
+      REGISTER_NRF: "yes"
+      USE_FQDN_DNS: "no"
+
+      MCC: "208"
+      MNC: "95"
+      NSSAI_SST_0: "1"
+      NSSAI_SD_0: "000001"
+      DNN_0: oai.ipv4
+    volumes:
+      - ./configs/upf-config.yaml:/openair-upf/etc/config.yaml:ro
+
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.8
+      dataplane:
+        ipv4_address: 192.168.200.50
+    ports:
+      - "2152:2152/udp"
+      - "8805:8805/udp"
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    restart: unless-stopped
+
+  qos-enforcer-core:
+    image: ubuntu-qos:22.04
+    container_name: qos-enforcer-core
+    platform: linux/arm64
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.60
+      dataplane:
+        ipv4_address: 192.168.200.70
+    volumes:
+      - ./scripts/qos-setup.sh:/root/qos-setup.sh:ro
+    command: >
+      bash -c "/bin/bash /root/qos-setup.sh || true;
+               sleep infinity"
+    restart: unless-stopped
+
+networks:
+  core_net:
     driver: bridge
     ipam:
       config:
-        - subnet: 192.168.50.0/24
+        - subnet: 192.168.150.0/24
     driver_opts:
       com.docker.network.driver.mtu: 1500
 
@@ -24,158 +348,8 @@ networks:
         - subnet: 192.168.200.0/24
           gateway: 192.168.200.1
           aux_addresses:
-            ue_host: 192.168.200.21
             core_host: 192.168.200.20
-
-services:
-  oai-gnb:
-    image: oaisoftwarealliance/oai-gnb:2026.w18
-    container_name: oai-gnb
-    platform: linux/arm64
-    init: true
-    privileged: true
-    network_mode: host
-    environment:
-      GNB_ID: "1"
-      MCC: "208"
-      MNC: "95"
-      TAC: "0001"
-      NSSAI_SST: "1"
-      USE_SA: "yes"
-
-      # UE/gNB-side 200G dataplane IP
-      GNB_N2_SVC_IP_ADDR: "192.168.200.21"
-      GNB_N3_SVC_IP_ADDR: "192.168.200.21"
-
-      # Core-side AMF reachable IP
-      AMF_IP_ADDRESS: "192.168.200.20"
-
-      # IMPORTANT:
-      # gNB must be RFsim server.
-      # Do NOT add --rfsimulator.serveraddr here.
-      USE_ADDITIONAL_OPTIONS: "--rfsim --rfsimulator.[0].serveraddr server --rfsimulator.[0].serverport 4043"
-
-    volumes:
-      - ./configs/gnb.conf:/opt/oai-gnb/etc/gnb.conf:ro
-
-    restart: unless-stopped
-
-  oai-nr-ue:
-    image: oaisoftwarealliance/oai-nr-ue:2026.w18
-    container_name: oai-nr-ue
-    platform: linux/arm64
-    init: true
-    privileged: true
-    network_mode: host
-    environment:
-      UE_MCC: "208"
-      UE_MNC: "95"
-      USE_SA: "yes"
-
-      # Because gNB and UE both use host networking
-      GNB_IP_ADDRESS: "127.0.0.1"
-
-      # UE must be RFsim client
-      USE_ADDITIONAL_OPTIONS: "-r 106 --numerology 1 --band 78 -C 3619200000 --rfsim --rfsimulator.serveraddr 127.0.0.1"
-
-    depends_on:
-      - oai-gnb
-
-    volumes:
-      - ./configs/nr-ue.conf:/opt/oai-nr-ue/etc/nr-ue.conf:ro
-
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus-ue
-    platform: linux/arm64
-    networks:
-      mon_net:
-        ipv4_address: 192.168.50.30
-    volumes:
-      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
-    restart: unless-stopped
-
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.47.0
-    container_name: cadvisor-ue
-    platform: linux/arm64
-    privileged: true
-    devices:
-      - /dev/kmsg:/dev/kmsg
-    networks:
-      mon_net:
-        ipv4_address: 192.168.50.60
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana-ue
-    platform: linux/arm64
-    networks:
-      mon_net:
-        ipv4_address: 192.168.50.40
-    environment:
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
-      GF_SECURITY_ADMIN_PASSWORD: "admin"
-    volumes:
-      - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro
-      - grafana-data:/var/lib/grafana
-    ports:
-      - "3000:3000"
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-
-  rapp-controller:
-    image: python:3.9-slim
-    container_name: rapp-controller
-    platform: linux/arm64
-    networks:
-      oran_net:
-        ipv4_address: 192.168.100.50
-      mon_net:
-        ipv4_address: 192.168.50.50
-    volumes:
-      - ./scripts/rapp-controller.py:/app/main.py:ro
-      - ./configs/requirements.txt:/app/requirements.txt:ro
-    working_dir: /app
-    command: >
-      bash -c "pip install --no-cache-dir -q -r requirements.txt &&
-               python main.py"
-    ports:
-      - "5000:5000"
-    restart: unless-stopped
-
-  qos-enforcer:
-    image: ubuntu-qos:22.04
-    container_name: qos-enforcer
-    platform: linux/arm64
-    privileged: true
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-    networks:
-      oran_net:
-        ipv4_address: 192.168.100.60
-      dataplane:
-        ipv4_address: 192.168.200.60
-    volumes:
-      - ./scripts/qos-setup.sh:/root/qos-setup.sh:ro
-    command: >
-      bash -c "/bin/bash /root/qos-setup.sh;
-               sleep infinity"
-    restart: unless-stopped
+            ue_host: 192.168.200.21
 
 volumes:
-  grafana-data:
+  mysql-data:
