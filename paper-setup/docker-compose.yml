@@ -45,8 +45,9 @@ services:
       GNB_N2_SVC_IP_ADDR: "192.168.100.10"
       GNB_N3_SVC_IP_ADDR: "192.168.200.10"
       AMF_IP_ADDRESS: "192.168.150.10"
+      USE_ADDITIONAL_OPTIONS: "--rfsim"
     ports:
-      - "8081:8080"
+      - "8082:8080"
     volumes:
       - ./configs/gnb.conf:/opt/oai-gnb/etc/gnb.conf:ro
     restart: unless-stopped
@@ -71,6 +72,7 @@ services:
       UE_MNC: "93"
       USE_SA: "yes"
       GNB_IP_ADDRESS: "192.168.100.10"
+      USE_ADDITIONAL_OPTIONS: "-r 106 --numerology 1 --band 78 -C 3619200000 --rfsim --rfsimulator.serveraddr 192.168.100.10"
     depends_on:
       - oai-gnb
     volumes:
