@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  mcp-qos-server:
+    build: .
+    container_name: mcp-qos-server
+    ports:
+      - "8088:8088"
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8088
+      - TRANSPORT_CONTROLLER_URL=http://172.18.0.1:8080
+      - TELEMETRY_COLLECTOR_URL=http://172.18.0.1:8081
+      - DEFAULT_TELEMETRY_INTERVAL_MS=250
+      - ENABLE_DRY_RUN=false
+      - LOG_LEVEL=INFO
+      - QOS_PROFILE=dynamic
+      - DOCKER_ENV=1
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped

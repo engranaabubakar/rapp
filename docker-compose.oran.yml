@@ -1,0 +1,117 @@
+version: '3.8'
+
+# ORAN Multi-DGX Deployment with QoS Management
+# DGX 10.30.7.57: Router (QoS) + UE + ORAN RIC (this compose file)
+# DGX 10.30.7.56: Router (QoS) + Core network (separate compose)
+# Both sides connected via dataplane with dual routers for load balancing
+
+services:
+  # ORAN Router - QoS Management and Traffic Control (Side A)
+  oran-router-qos:
+    image: oran-router:latest
+    container_name: oran-router-qos
+    hostname: oran-router-qos
+    platform: linux/amd64
+    networks:
+      oran_net:
+        ipv4_address: 192.168.100.10
+      dataplane:
+        ipv4_address: 192.168.200.20
+    environment:
+      - ROUTER_ID=router-qos-1
+      - ROUTER_MODE=QoS
+      - REMOTE_ROUTER_IP=192.168.200.50
+      - QOS_ENABLED=true
+      - LOG_LEVEL=INFO
+    ports:
+      - "8080:8080"   # REST API
+      - "9090:9090"   # gRPC
+      - "8888:8888"   # QoS metrics
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.ip_local_port_range=1024 65535
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ORAN RIC (RAN Intelligent Controller)
+  oran-rapp:
+    image: oran-rapp:latest
+    container_name: oran-rapp
+    hostname: oran-rapp
+    platform: linux/amd64
+    networks:
+      oran_net:
+        ipv4_address: 192.168.100.20
+    environment:
+      - RIC_ID=oran-rapp
+      - ROUTER_HOST=oran-router-qos
+      - ROUTER_PORT=9090
+      - LOG_LEVEL=INFO
+    depends_on:
+      - oran-router-qos
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # User Equipment (UE)
+  oran-ue:
+    image: oran-ue:latest
+    container_name: oran-ue
+    hostname: oran-ue
+    platform: linux/amd64
+    networks:
+      oran_net:
+        ipv4_address: 192.168.100.30
+      dataplane:
+        ipv4_address: 192.168.200.30
+    environment:
+      - UE_ID=ue-001
+      - RIC_HOST=oran-rapp
+      - RIC_PORT=8081
+      - ROUTER_HOST=oran-router-qos
+      - LOG_LEVEL=INFO
+    depends_on:
+      - oran-router-qos
+      - oran-rapp
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv4.ip_forward=1
+
+networks:
+  # Management network (10Gbps or similar)
+  oran_net:
+    driver: bridge
+    driver_opts:
+      com.docker.driver.mtu: 1500
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
+          gateway: 192.168.100.1
+
+  # Dataplane network (High-speed dataplane with QoS)
+  dataplane:
+    driver: bridge
+    driver_opts:
+      com.docker.driver.mtu: 9000
+    ipam:
+      config:
+        - subnet: 192.168.200.0/24
+          gateway: 192.168.200.1

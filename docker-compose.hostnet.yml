@@ -1,0 +1,112 @@
+# docker-compose.hostnet.yml
+# High-throughput host-networking override for O-RAN xHaul experiments.
+#
+# USAGE:
+#   docker compose -f docker-compose.oran.yml -f docker-compose.hostnet.yml up -d
+#
+# WHY HOST NETWORKING:
+#   Docker bridge/veth interfaces negotiate at 10 Gb/s and add a software datapath
+#   bottleneck. The physical DGX Spark NICs (enp1s0f0np0) negotiate at 200 Gb/s.
+#   Running dataplane-heavy containers in host-network mode removes the bridge/veth
+#   overhead and allows containers to send traffic directly over the physical NIC.
+#   Note: host-network containers share the host network namespace.
+#         - Static Docker IP addresses are NOT applicable.
+#         - ports: mappings are IGNORED.
+#         - cap_add NET_ADMIN and privileged: true are still required for tc/ip/VLAN.
+#
+# IMPORTANT THROUGHPUT DISTINCTION:
+#   optical_xhaul_capacity_gbps = 200
+#   achieved_host_path_throughput_gbps = measured value
+#   PCIe Gen 5 x4 lanes limit host-side throughput ceiling to ~111 Gb/s currently
+#   optical_line_utilization_percent = achieved / 200 * 100
+
+# ─── Access-side dataplane containers (DGX Spark-1: 10.30.7.57) ────────────────
+
+services:
+
+  # oran-ue: UE/RAN emulation endpoint
+  # Switched to host networking for direct NIC access during throughput tests.
+  oran-ue:
+    network_mode: host
+    environment:
+      NETWORK_MODE: host
+      DATAPLANE_IFACE: enp1s0f0np0
+      DATAPLANE_MTU: "9000"
+      OPTICAL_XHAUL_CAPACITY_GBPS: "200"
+      PCIE_LIMITED_HOST_PATH: "true"
+      TRAFFIC_STREAMS: "16"
+      QOS_MODE: dynamic
+      URLLC_VLAN: "100"
+      EMBB_VLAN: "200"
+      URLLC_DSCP: "46"
+      EMBB_DSCP: "0"
+      URLLC_HTB_CLASS: "1:10"
+      EMBB_HTB_CLASS: "1:20"
+
+  # oran-router-qos: Access-side QoS gateway / tc enforcement point
+  oran-router-qos:
+    network_mode: host
+    environment:
+      NETWORK_MODE: host
+      DATAPLANE_IFACE: enp1s0f0np0
+      DATAPLANE_MTU: "9000"
+      OPTICAL_XHAUL_CAPACITY_GBPS: "200"
+      PCIE_LIMITED_HOST_PATH: "true"
+      TRAFFIC_STREAMS: "16"
+      QOS_MODE: dynamic
+      URLLC_VLAN: "100"
+      EMBB_VLAN: "200"
+      URLLC_DSCP: "46"
+      EMBB_DSCP: "0"
+      URLLC_HTB_CLASS: "1:10"
+      EMBB_HTB_CLASS: "1:20"
+      REMOTE_ROUTER_IP: "10.30.7.56"
+      # In host mode API listens on 0.0.0.0:8080 directly on host
+      LISTEN_PORT: "8080"
+      METRICS_PORT: "8888"
+      GRPC_PORT: "9090"
+
+  # qos-enforcer: High-throughput iperf3 and tc enforcement container
+  qos-enforcer:
+    network_mode: host
+    environment:
+      NETWORK_MODE: host
+      DATAPLANE_IFACE: enp1s0f0np0
+      DATAPLANE_MTU: "9000"
+      OPTICAL_XHAUL_CAPACITY_GBPS: "200"
+      PCIE_LIMITED_HOST_PATH: "true"
+      TRAFFIC_STREAMS: "16"
+      URLLC_DSCP: "46"
+      EMBB_DSCP: "0"
+
+  # ─── Control-plane containers remain on bridge but call host IPs ─────────────
+  # mcp-qos-server, oran-rapp, transport-controller are control-plane only.
+  # They do NOT forward dataplane traffic. They call REST APIs on host IPs.
+
+  oran-rapp:
+    environment:
+      TRANSPORT_CONTROLLER_URL: "http://10.30.7.57:8085"
+      MCP_SERVER_URL: "http://10.30.7.57:8088"
+      ROUTER_QOS_URL: "http://10.30.7.57:8080"
+      QOS_MODE: dynamic
+
+  mcp-qos-server:
+    environment:
+      TRANSPORT_CONTROLLER_URL: "http://10.30.7.57:8085"
+      ROUTER_QOS_URL: "http://10.30.7.57:8080"
+      OPTICAL_XHAUL_CAPACITY_GBPS: "200"
+      QOS_MODE: dynamic
+    ports:
+      - "8088:8088"
+      - "9108:9108"
+
+  transport-controller:
+    environment:
+      ROUTER_QOS_ACCESS_URL: "http://10.30.7.57:8080"
+      ROUTER_QOS_CORE_URL: "http://10.30.7.56:8083"
+      MCP_SERVER_URL: "http://10.30.7.57:8088"
+      OPTICAL_XHAUL_CAPACITY_GBPS: "200"
+      QOS_MODE: dynamic
+    ports:
+      - "8085:8085"
+      - "8889:8889"

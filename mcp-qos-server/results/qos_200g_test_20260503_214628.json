@@ -1,0 +1,19 @@
+{
+  "timestamp": "20260503_214628",
+  "optical_xhaul_capacity_gbps": 200,
+  "experimental_traffic_profile_gbps": 10,
+  "achieved_throughput_gbps": 9.57,
+  "traffic_profile_utilization_percent": 97,
+  "optical_line_utilization_percent": 4.785,
+  "urlcc_p50_ms": 0.014,
+  "urlcc_p95_ms": 0.051,
+  "urlcc_p99_ms": 0.098,
+  "urlcc_p999_ms": 0.146,
+  "packet_loss_percent": 0.0,
+  "telemetry_interval_ms": 250,
+  "policy_processing_latency_ms": 23,
+  "reconfiguration_time_ms": 11,
+  "control_traffic_kbps": 2.08,
+  "rApp_cpu_percent": 0.01,
+  "rApp_memory_mb": 27.8
+}

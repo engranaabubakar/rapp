@@ -1,0 +1,15 @@
+{
+  "title": "O-RAN Optical xHaul Performance",
+  "uid": "xhaul-perf",
+  "panels": [
+    {
+      "title": "Total Link Throughput (Gbps)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+      "targets": [
+        {"expr": "rate(container_network_receive_bytes_total{name=~\"qos-enforcer.*\"}[2s]) * 8 / 1e9", "legendFormat": "Rx Gbps"},
+        {"expr": "rate(container_network_transmit_bytes_total{name=~\"qos-enforcer.*\"}[2s]) * 8 / 1e9", "legendFormat": "Tx Gbps"}
+      ]
+    }
+  ]
+}
