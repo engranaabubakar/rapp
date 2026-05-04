@@ -1,0 +1,129 @@
+version: '3.9'
+
+networks:
+  oran_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+
+  dataplane:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.200.0/24
+    driver_opts:
+      com.docker.network.driver.mtu: 9000
+
+  mon_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.50.0/24
+
+services:
+  # RAN Emulator (simulates gNB traffic)
+  ran-emulator:
+    image: ubuntu:22.04
+    container_name: ran-emulator
+    platform: linux/arm64
+    cap_add:
+      - NET_ADMIN
+    networks:
+      oran_net:
+        ipv4_address: 192.168.100.10
+      dataplane:
+        ipv4_address: 192.168.200.10
+    volumes:
+      - ./scripts/ran-emulator.sh:/root/start.sh:ro
+    command: bash -c "apt-get update -qq && apt-get install -y -qq iperf3 curl netcat && /root/start.sh && sleep infinity"
+    ports:
+      - "8080:8080"
+      - "5001:5001"
+    restart: unless-stopped
+
+  # UE Emulator (simulates UE traffic)
+  ue-emulator:
+    image: ubuntu:22.04
+    container_name: ue-emulator
+    platform: linux/arm64
+    cap_add:
+      - NET_ADMIN
+    networks:
+      oran_net:
+        ipv4_address: 192.168.100.20
+      dataplane:
+        ipv4_address: 192.168.200.20
+    volumes:
+      - ./scripts/ue-emulator.sh:/root/start.sh:ro
+    command: bash -c "apt-get update -qq && apt-get install -y -qq iperf3 curl && /root/start.sh && sleep infinity"
+    restart: unless-stopped
+
+  # Prometheus telemetry
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus-ue
+    platform: linux/arm64
+    networks:
+      mon_net:
+        ipv4_address: 192.168.50.30
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  # Grafana dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-ue
+    platform: linux/arm64
+    networks:
+      mon_net:
+        ipv4_address: 192.168.50.40
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # rApp Controller (Paper's SMO/rApp Logic)
+  rapp-controller:
+    image: python:3.9-slim
+    container_name: rapp-controller
+    platform: linux/arm64
+    networks:
+      oran_net:
+        ipv4_address: 192.168.100.50
+      mon_net:
+        ipv4_address: 192.168.50.50
+    volumes:
+      - ./scripts/rapp-controller.py:/app/main.py:ro
+      - ./configs/requirements.txt:/app/requirements.txt:ro
+    working_dir: /app
+    command: bash -c "pip install -q -r requirements.txt && python main.py"
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  # QoS Enforcer (Paper's Policy Enforcement)
+  qos-enforcer:
+    image: ubuntu:22.04
+    container_name: qos-enforcer
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    privileged: true
+    networks:
+      oran_net:
+        ipv4_address: 192.168.100.60
+      dataplane:
+        ipv4_address: 192.168.200.60
+    volumes:
+      - ./scripts/qos-setup.sh:/root/qos-setup.sh:ro
+    command: bash -c "apt-get update -qq && apt-get install -y -qq iproute2 iperf3 curl && /root/qos-setup.sh && sleep infinity"
+    restart: unless-stopped

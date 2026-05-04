@@ -1,0 +1,96 @@
+version: '3.9'
+
+networks:
+  core_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.150.0/24
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+
+  dataplane:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.200.0/24
+    driver_opts:
+      com.docker.network.driver.mtu: 9000
+
+  mon_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.51.0/24
+
+services:
+  # Core Network Stub
+  core-stub:
+    image: ubuntu:22.04
+    container_name: core-stub
+    platform: linux/arm64
+    cap_add:
+      - NET_ADMIN
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.10
+      dataplane:
+        ipv4_address: 192.168.200.50
+    volumes:
+      - ./scripts/core-stub.sh:/root/start.sh:ro
+    command: bash -c "apt-get update -qq && apt-get install -y -qq iperf3 netcat && /root/start.sh && sleep infinity"
+    ports:
+      - "8080:8080"
+      - "5002:5002"
+    restart: unless-stopped
+
+  # Prometheus (core side telemetry)
+  prometheus-core:
+    image: prom/prometheus:latest
+    container_name: prometheus-core
+    platform: linux/arm64
+    networks:
+      mon_net:
+        ipv4_address: 192.168.51.30
+    volumes:
+      - ./configs/prometheus-core.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9091:9090"
+    restart: unless-stopped
+
+  # rApp Controller (core side)
+  rapp-controller-core:
+    image: python:3.9-slim
+    container_name: rapp-controller-core
+    platform: linux/arm64
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.50
+      mon_net:
+        ipv4_address: 192.168.51.50
+    volumes:
+      - ./scripts/rapp-controller-core.py:/app/main.py:ro
+      - ./configs/requirements.txt:/app/requirements.txt:ro
+    working_dir: /app
+    command: bash -c "pip install -q -r requirements.txt && python main.py"
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+
+  # QoS Enforcer (core side)
+  qos-enforcer-core:
+    image: ubuntu:22.04
+    container_name: qos-enforcer-core
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    privileged: true
+    networks:
+      core_net:
+        ipv4_address: 192.168.150.60
+      dataplane:
+        ipv4_address: 192.168.200.45
+    volumes:
+      - ./scripts/qos-setup-core.sh:/root/qos-setup.sh:ro
+    command: bash -c "apt-get update -qq && apt-get install -y -qq iproute2 iperf3 curl && /root/qos-setup.sh && sleep infinity"
+    restart: unless-stopped
