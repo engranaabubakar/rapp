@@ -1,4 +1,6 @@
 OAI 5G SA Demo on NVIDIA DGX Spark
+Here is Demo video link https://youtu.be/XYVi2nt2xS0
+
 This repository provides a containerized OpenAirInterface (OAI) 5G Standalone (SA) demo deployed across NVIDIA DGX Spark systems. The demo brings up an OAI 5G Core, gNB, and NR-UE using Docker Compose, RF simulator mode, and a working PDU session through the OAI UPF.
 The final expected result is a registered UE with a working tunnel interface:
 ```bash
